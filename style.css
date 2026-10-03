@@ -1,0 +1,179 @@
+:root {
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --text: #1c1c1e;
+  --muted: #8e8e93;
+  --ring: #c7c7cc;
+  --accent: #34c759;
+  --accent-soft: rgba(52, 199, 89, 0.12);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --text: #f2f2f7;
+    --muted: #8e8e93;
+    --ring: #3a3a3c;
+    --accent: #30d158;
+    --accent-soft: rgba(48, 209, 88, 0.16);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding:
+    calc(env(safe-area-inset-top) + 16px)
+    calc(env(safe-area-inset-right) + 16px)
+    calc(env(safe-area-inset-bottom) + 16px)
+    calc(env(safe-area-inset-left) + 16px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 20px;
+}
+
+h1 { font-size: 32px; margin: 0; letter-spacing: -0.5px; }
+.week { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.icon-btn:active { background: var(--ring); }
+
+/* Kategorie-Karten */
+.card {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 18px;
+  margin-bottom: 16px;
+  border: 2px solid transparent;
+  transition: border-color .2s, background .2s;
+}
+.card.complete {
+  border-color: var(--accent);
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--card);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.card-head h2 { font-size: 20px; margin: 0; }
+.card-head .sub { color: var(--muted); font-size: 14px; font-weight: 400; }
+
+.count { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.card.complete .count { color: var(--accent); }
+.card.complete .count::after { content: " ✓"; }
+
+.dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dot {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid var(--ring);
+  display: grid;
+  place-items: center;
+  transition: transform .1s, background .15s, border-color .15s;
+}
+.dot:active { transform: scale(0.92); }
+.dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.dot.on::after {
+  content: "";
+  width: 14px;
+  height: 24px;
+  border: solid #fff;
+  border-width: 0 4px 4px 0;
+  transform: translateY(-3px) rotate(45deg);
+}
+.empty { color: var(--muted); margin: 0; }
+
+/* Einstellungen */
+dialog {
+  border: 0;
+  border-radius: 20px;
+  padding: 20px;
+  width: min(92vw, 380px);
+  background: var(--card);
+  color: var(--text);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+dialog h2 { margin: 0 0 12px; font-size: 20px; }
+
+.goal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ring);
+}
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg);
+  font-size: 24px;
+  line-height: 1;
+}
+.stepper button:disabled { opacity: .35; }
+.stepper output {
+  min-width: 2ch;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.done-btn {
+  width: 100%;
+  height: 50px;
+  margin-top: 16px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 17px;
+}
