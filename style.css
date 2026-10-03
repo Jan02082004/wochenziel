@@ -253,6 +253,24 @@ input:focus { outline: 2px solid var(--c, var(--accent)); }
   color: var(--muted);
   font-size: 15px;
 }
+.types-row { padding-top: 10px; color: var(--muted); font-size: 15px; }
+.type-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.type-tag {
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+.type-tag input { padding: 6px 0 6px 10px; font-size: 15px; background: none; width: auto; }
+.type-tag button { width: 30px; height: 32px; color: var(--muted); font-size: 20px; line-height: 1; }
+.type-add {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 2px dashed var(--ring);
+  font-size: 15px;
+  font-weight: 600;
+}
 .stepper { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .stepper button {
   width: 40px;

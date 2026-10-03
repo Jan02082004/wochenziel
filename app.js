@@ -10,19 +10,18 @@ const COLORS = ['#34c759', '#0a84ff', '#ff9f0a', '#ff375f', '#bf5af2', '#30b0c7'
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
-// Kategorien mit Trainingsarten: beim Eintragen wird nachgefragt, was trainiert wurde
-const SESSION_TYPES = {
-  gym: [
-    { id: 'legs', name: 'Legs', short: 'Legs' },
-    { id: 'upper', name: 'Upper', short: 'Upper' },
-    { id: 'arms', name: 'Arms', short: 'Arms' },
-    { id: 'chestback', name: 'Chest + Back', short: 'C+B' },
-  ],
-};
+const MAX_TYPES = 8;
+
+const GYM_TYPES = [
+  { id: 'legs', name: 'Legs' },
+  { id: 'upper', name: 'Upper' },
+  { id: 'arms', name: 'Arms' },
+  { id: 'chestback', name: 'Chest + Back' },
+];
 
 const DEFAULT_CATEGORIES = [
-  { id: 'gym', name: 'Gym', emoji: '🏋️', color: COLORS[0], goal: 4 },
-  { id: 'run', name: 'Joggen', emoji: '🏃', color: COLORS[1], goal: 1 },
+  { id: 'gym', name: 'Gym', emoji: '🏋️', color: COLORS[0], goal: 4, types: GYM_TYPES },
+  { id: 'run', name: 'Joggen', emoji: '🏃', color: COLORS[1], goal: 1, types: [] },
 ];
 
 // ---------- Datum ----------
@@ -69,8 +68,9 @@ function weekLabel(mondayKey) {
 
 // ---------- Speicher ----------
 // state = {
-//   categories: [{ id, name, emoji, color, goal, created }],  created = Montag der ersten Woche
-//   sessions:   [{ id, cat, date, type? }],                   eine erledigte Einheit (type siehe SESSION_TYPES)
+//   categories: [{ id, name, emoji, color, goal, created, types }],  created = Montag der ersten Woche
+//                types = [{ id, name }]: Arten, nach denen beim Eintragen gefragt wird (leer = keine Frage)
+//   sessions:   [{ id, cat, date, type? }],                   eine erledigte Einheit, type = id einer Art
 //   goalHistory: { [montag]: { [catId]: ziel } },             Ziele vergangener Wochen
 // }
 
@@ -85,7 +85,7 @@ function clamp(n, min, max) {
 function defaultState() {
   const week = currentMonday();
   return {
-    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, created: week })),
+    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, types: c.types.map((t) => ({ ...t })), created: week })),
     sessions: [],
     goalHistory: {},
   };
@@ -109,6 +109,7 @@ function normalize(raw) {
       color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : COLORS[categories.length % COLORS.length],
       goal: Number.isInteger(c.goal) ? clamp(c.goal, 0, MAX_GOAL) : 0,
       created: KEY_RE.test(c.created) ? mondayOf(c.created) : currentMonday(),
+      types: normalizeTypes(c),
     });
   }
 
@@ -116,7 +117,9 @@ function normalize(raw) {
     .filter((s) => s && ids.has(s.cat) && KEY_RE.test(s.date))
     .map((s) => {
       const session = { id: typeof s.id === 'string' ? s.id : uid(), cat: s.cat, date: s.date };
-      if (typeOf(s.cat, s.type)) session.type = s.type;
+      if (typeof s.type === 'string' && categories.find((c) => c.id === s.cat).types.some((t) => t.id === s.type)) {
+        session.type = s.type;
+      }
       return session;
     });
 
@@ -139,6 +142,19 @@ function normalize(raw) {
   }
 
   return { categories, sessions, goalHistory };
+}
+
+function normalizeTypes(c) {
+  // Daten von vor den einstellbaren Arten: Gym bekommt die Standard-Arten
+  if (!Array.isArray(c.types)) return c.id === 'gym' ? GYM_TYPES.map((t) => ({ ...t })) : [];
+  const types = [];
+  const ids = new Set();
+  for (const t of c.types) {
+    if (!t || typeof t.id !== 'string' || !t.id || ids.has(t.id) || types.length >= MAX_TYPES) continue;
+    ids.add(t.id);
+    types.push({ id: t.id, name: typeof t.name === 'string' ? t.name.slice(0, 24) : '' });
+  }
+  return types;
 }
 
 // Alte Version speicherte nur Zähler der aktuellen Woche -> in datierte Einheiten umwandeln
@@ -239,8 +255,21 @@ function snapshotGoals() {
   state.goalHistory[currentMonday()] = Object.fromEntries(state.categories.map((c) => [c.id, c.goal]));
 }
 
-function typeOf(catId, typeId) {
-  return SESSION_TYPES[catId]?.find((t) => t.id === typeId);
+function typeOf(cat, typeId) {
+  return cat.types.find((t) => t.id === typeId);
+}
+
+function typeName(type) {
+  return type.name.trim() || 'Ohne Namen';
+}
+
+// Kurzform für den Punkt: "Upper" bleibt, "Chest + Back" -> "C+B", "Oberkörper" -> "Oberk."
+function typeShort(type) {
+  const name = typeName(type);
+  if (name.length <= 6) return name;
+  const words = name.split(/\s+/);
+  if (words.length > 1) return words.map((w) => [...w][0]).join('').slice(0, 5);
+  return name.slice(0, 5) + '.';
 }
 
 function displayName(cat) {
@@ -295,12 +324,12 @@ function renderCard(cat) {
   const dots = el('div', { class: 'dots' });
   sessions.forEach((s, i) => {
     const day = weekdayIndex(s.date);
-    const type = typeOf(cat.id, s.type);
+    const type = typeOf(cat, s.type);
     const dot = el('button', {
       class: 'dot on',
-      'aria-label': `${displayName(cat)} Einheit ${i + 1} am ${DAY_NAMES[day]}${type ? ` (${type.name})` : ''} bearbeiten`,
+      'aria-label': `${displayName(cat)} Einheit ${i + 1} am ${DAY_NAMES[day]}${type ? ` (${typeName(type)})` : ''} bearbeiten`,
     }, DAYS[day]);
-    if (type) dot.append(el('small', {}, type.short));
+    if (type) dot.append(el('small', {}, typeShort(type)));
     dot.addEventListener('click', () => openSession(s.id));
     dots.append(dot);
   });
@@ -437,9 +466,38 @@ function renderSettings() {
     stepper.append(minus, el('output', {}, String(cat.goal)), plus);
     goalRow.append(el('span', {}, 'Ziel pro Woche'), stepper);
 
-    row.append(line, goalRow);
+    row.append(line, goalRow, renderTypeSettings(cat));
     return row;
   }));
+}
+
+// Arten einer Kategorie (z. B. Legs / Upper): werden beim Eintragen abgefragt
+function renderTypeSettings(cat) {
+  const wrap = el('div', { class: 'types-row' });
+  wrap.append(el('span', {}, cat.types.length ? 'Arten – werden beim Eintragen abgefragt' : 'Arten (optional)'));
+  const tags = el('div', { class: 'type-tags' });
+  for (const type of cat.types) {
+    const tag = el('div', { class: 'type-tag' });
+    const input = el('input', { value: type.name, maxlength: '24', placeholder: 'Name', 'aria-label': 'Name der Art' });
+    input.size = Math.max(4, type.name.length);
+    const remove = el('button', { type: 'button', 'aria-label': `${typeName(type)} entfernen` }, '×');
+    input.addEventListener('input', () => {
+      type.name = input.value;
+      input.size = Math.max(4, input.value.length);
+      save();
+      render();
+    });
+    remove.addEventListener('click', () => removeType(cat, type));
+    tag.append(input, remove);
+    tags.append(tag);
+  }
+  if (cat.types.length < MAX_TYPES) {
+    const add = el('button', { type: 'button', class: 'type-add' }, '+ Art');
+    add.addEventListener('click', () => addType(cat));
+    tags.append(add);
+  }
+  wrap.append(tags);
+  return wrap;
 }
 
 let editingSessionId = null;
@@ -474,14 +532,13 @@ function renderSession() {
     return chip;
   }));
 
-  const types = SESSION_TYPES[cat.id];
-  $sessionTypesWrap.hidden = !types;
-  $sessionTypes.replaceChildren(...(types ?? []).map((type) => {
+  $sessionTypesWrap.hidden = !cat.types.length;
+  $sessionTypes.replaceChildren(...cat.types.map((type) => {
     const chip = el('button', {
       type: 'button',
       class: 'type' + (type.id === session.type ? ' selected' : ''),
       'aria-pressed': String(type.id === session.type),
-    }, type.name);
+    }, typeName(type));
     chip.addEventListener('click', () => {
       session.type = type.id;
       save();
@@ -501,7 +558,7 @@ function addSession(catId) {
   render();
   if (navigator.vibrate) navigator.vibrate(10);
   // Direkt nachfragen, was trainiert wurde
-  if (SESSION_TYPES[catId]) openSession(session.id);
+  if (state.categories.find((c) => c.id === catId).types.length) openSession(session.id);
 }
 
 function openSession(id) {
@@ -518,6 +575,25 @@ function changeGoal(cat, delta) {
   render();
 }
 
+function addType(cat) {
+  cat.types.push({ id: uid(), name: '' });
+  save();
+  renderSettings();
+  const row = $catRows.children[state.categories.indexOf(cat)];
+  const inputs = row.querySelectorAll('.type-tag input');
+  inputs[inputs.length - 1]?.focus();
+}
+
+function removeType(cat, type) {
+  const used = state.sessions.filter((s) => s.cat === cat.id && s.type === type.id);
+  if (used.length && !confirm(`„${typeName(type)}“ entfernen? ${used.length} Einheiten verlieren diese Angabe.`)) return;
+  cat.types = cat.types.filter((t) => t.id !== type.id);
+  for (const s of used) delete s.type;
+  save();
+  renderSettings();
+  render();
+}
+
 function addCategory() {
   const used = new Set(state.categories.map((c) => c.color));
   state.categories.push({
@@ -527,6 +603,7 @@ function addCategory() {
     color: COLORS.find((c) => !used.has(c)) ?? COLORS[state.categories.length % COLORS.length],
     goal: 3,
     created: currentMonday(),
+    types: [],
   });
   snapshotGoals();
   save();
