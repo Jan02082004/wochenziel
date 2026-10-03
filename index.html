@@ -23,20 +23,59 @@
       <h1>Diese Woche</h1>
       <p class="week" id="weekLabel"></p>
     </div>
-    <button class="icon-btn" id="openSettings" aria-label="Einstellungen">
-      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
-        <path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
-      </svg>
-    </button>
+    <div class="top-actions">
+      <button class="icon-btn" id="openStats" aria-label="Statistik">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+          <path fill="currentColor" d="M4 21V11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v10H4Zm6 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v17h-4Zm6 0v-6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v6h-4Z"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="openSettings" aria-label="Einstellungen">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+          <path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <main id="categories"></main>
 
-  <dialog id="settings">
+  <dialog id="stats" class="sheet">
     <form method="dialog">
-      <h2>Wochenziele</h2>
-      <div id="goalRows"></div>
+      <div class="sheet-head">
+        <h2 tabindex="-1" autofocus>Statistik</h2>
+        <button class="close-btn" value="close" aria-label="Schließen">✕</button>
+      </div>
+      <div id="statsBody"></div>
+    </form>
+  </dialog>
+
+  <dialog id="settings" class="sheet">
+    <form method="dialog">
+      <h2 tabindex="-1" autofocus>Kategorien</h2>
+      <div id="catRows"></div>
+      <button type="button" class="add-btn" id="addCategory">+ Kategorie hinzufügen</button>
+
+      <h2 class="section">Backup</h2>
+      <p class="hint">Deine Daten liegen nur auf diesem Gerät. Sichere sie ab und zu, z. B. in iCloud Drive.</p>
+      <div class="row-btns">
+        <button type="button" class="secondary-btn" id="exportBtn">Exportieren</button>
+        <button type="button" class="secondary-btn" id="importBtn">Importieren</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+
       <button class="done-btn" value="close">Fertig</button>
+    </form>
+  </dialog>
+
+  <dialog id="session">
+    <form method="dialog">
+      <h2 id="sessionTitle" tabindex="-1" autofocus></h2>
+      <p class="hint">An welchem Tag?</p>
+      <div class="days" id="sessionDays"></div>
+      <div class="row-btns">
+        <button type="button" class="secondary-btn danger" id="deleteSession">Löschen</button>
+        <button class="secondary-btn primary" value="close">Fertig</button>
+      </div>
     </form>
   </dialog>
 

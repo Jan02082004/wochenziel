@@ -1,59 +1,154 @@
 'use strict';
 
-const STORAGE_KEY = 'wochenziel:v1';
+const STORAGE_KEY = 'wochenziel:v2';
+const LEGACY_KEY = 'wochenziel:v1';
 const MAX_GOAL = 14;
+const CARD_WEEKS = 8;
+const STATS_WEEKS = 12;
 
-const CATEGORIES = [
-  { id: 'gym', name: 'Gym', sub: 'Kraft', defaultGoal: 4 },
-  { id: 'run', name: 'Joggen', sub: 'Ausdauer', defaultGoal: 1 },
+const COLORS = ['#34c759', '#0a84ff', '#ff9f0a', '#ff375f', '#bf5af2', '#30b0c7', '#5e5ce6'];
+const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+const DEFAULT_CATEGORIES = [
+  { id: 'gym', name: 'Gym', emoji: '🏋️', color: COLORS[0], goal: 4 },
+  { id: 'run', name: 'Joggen', emoji: '🏃', color: COLORS[1], goal: 1 },
 ];
 
 // ---------- Datum ----------
+// Alle Daten sind lokale Tage als "YYYY-MM-DD" (lassen sich als String vergleichen).
 
-// Montag der aktuellen Woche in lokaler Zeit als "YYYY-MM-DD"
-function currentMonday(now = new Date()) {
-  const daysSinceMonday = (now.getDay() + 6) % 7; // So=0 -> 6, Mo=1 -> 0
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
-  return toKey(monday);
-}
+const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function toKey(d) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function fromKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(key, n) {
+  const d = fromKey(key);
+  d.setDate(d.getDate() + n);
+  return toKey(d);
+}
+
+function weekdayIndex(key) {
+  return (fromKey(key).getDay() + 6) % 7; // Mo=0 … So=6
+}
+
+function mondayOf(key) {
+  return addDays(key, -weekdayIndex(key));
+}
+
+function today() {
+  return toKey(new Date());
+}
+
+function currentMonday() {
+  return mondayOf(today());
+}
+
 function weekLabel(mondayKey) {
-  const [y, m, d] = mondayKey.split('-').map(Number);
-  const start = new Date(y, m - 1, d);
-  const end = new Date(y, m - 1, d + 6);
-  const fmt = (x) => x.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
-  return `${fmt(start)} – ${fmt(end)}`;
+  const fmt = (k) => fromKey(k).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+  return `${fmt(mondayKey)} – ${fmt(addDays(mondayKey, 6))}`;
 }
 
 // ---------- Speicher ----------
+// state = {
+//   categories: [{ id, name, emoji, color, goal, created }],  created = Montag der ersten Woche
+//   sessions:   [{ id, cat, date }],                          eine erledigte Einheit
+//   goalHistory: { [montag]: { [catId]: ziel } },             Ziele vergangener Wochen
+// }
+
+function uid() {
+  return crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
 
 function defaultState() {
-  const state = { week: currentMonday(), goals: {}, done: {} };
-  for (const c of CATEGORIES) {
-    state.goals[c.id] = c.defaultGoal;
-    state.done[c.id] = 0;
+  const week = currentMonday();
+  return {
+    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, created: week })),
+    sessions: [],
+    goalHistory: {},
+  };
+}
+
+// Prüft gespeicherte oder importierte Daten und gibt einen sauberen State zurück (oder null).
+function normalize(raw) {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.categories) || !Array.isArray(raw.sessions)) {
+    return null;
+  }
+
+  const categories = [];
+  const ids = new Set();
+  for (const c of raw.categories) {
+    if (!c || typeof c.id !== 'string' || !c.id || ids.has(c.id)) continue;
+    ids.add(c.id);
+    categories.push({
+      id: c.id,
+      name: typeof c.name === 'string' ? c.name.slice(0, 40) : 'Kategorie',
+      emoji: typeof c.emoji === 'string' ? c.emoji.slice(0, 8) : '',
+      color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : COLORS[categories.length % COLORS.length],
+      goal: Number.isInteger(c.goal) ? clamp(c.goal, 0, MAX_GOAL) : 0,
+      created: KEY_RE.test(c.created) ? mondayOf(c.created) : currentMonday(),
+    });
+  }
+
+  const sessions = raw.sessions
+    .filter((s) => s && ids.has(s.cat) && KEY_RE.test(s.date))
+    .map((s) => ({ id: typeof s.id === 'string' ? s.id : uid(), cat: s.cat, date: s.date }));
+
+  // Eine Kategorie beginnt spätestens mit ihrer ersten Einheit
+  for (const s of sessions) {
+    const cat = categories.find((c) => c.id === s.cat);
+    const week = mondayOf(s.date);
+    if (week < cat.created) cat.created = week;
+  }
+
+  const goalHistory = {};
+  if (raw.goalHistory && typeof raw.goalHistory === 'object') {
+    for (const [week, goals] of Object.entries(raw.goalHistory)) {
+      if (!KEY_RE.test(week) || !goals || typeof goals !== 'object') continue;
+      goalHistory[week] = {};
+      for (const [id, g] of Object.entries(goals)) {
+        if (ids.has(id) && Number.isInteger(g)) goalHistory[week][id] = clamp(g, 0, MAX_GOAL);
+      }
+    }
+  }
+
+  return { categories, sessions, goalHistory };
+}
+
+// Alte Version speicherte nur Zähler der aktuellen Woche -> in datierte Einheiten umwandeln
+function migrateV1(old) {
+  const state = defaultState();
+  const week = KEY_RE.test(old.week) ? old.week : currentMonday();
+  const date = week === currentMonday() ? today() : week;
+  for (const c of state.categories) {
+    if (Number.isInteger(old.goals?.[c.id])) c.goal = clamp(old.goals[c.id], 0, MAX_GOAL);
+    const done = old.done?.[c.id];
+    if (!Number.isInteger(done)) continue;
+    for (let i = 0; i < clamp(done, 0, MAX_GOAL); i++) state.sessions.push({ id: uid(), cat: c.id, date });
   }
   return state;
 }
 
 function load() {
-  const state = defaultState();
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && typeof saved === 'object') {
-      if (typeof saved.week === 'string') state.week = saved.week;
-      for (const c of CATEGORIES) {
-        if (Number.isInteger(saved.goals?.[c.id])) state.goals[c.id] = saved.goals[c.id];
-        if (Number.isInteger(saved.done?.[c.id])) state.done[c.id] = saved.done[c.id];
-      }
-    }
+    const saved = normalize(JSON.parse(localStorage.getItem(STORAGE_KEY)));
+    if (saved) return saved;
+    const old = JSON.parse(localStorage.getItem(LEGACY_KEY));
+    if (old && typeof old === 'object') return normalize(migrateV1(old));
   } catch { /* defekte Daten -> Standardwerte */ }
-  return state;
+  return defaultState();
 }
 
 function save() {
@@ -64,16 +159,78 @@ function save() {
 
 let state = load();
 
-// ---------- Wochen-Reset ----------
+// ---------- Auswertung ----------
 
-function checkWeek() {
-  const monday = currentMonday();
-  if (state.week !== monday) {
-    state.week = monday;
-    for (const c of CATEGORIES) state.done[c.id] = 0; // Ziele bleiben erhalten
-    save();
+function sessionsIn(catId, monday) {
+  const end = addDays(monday, 7);
+  return state.sessions
+    .filter((s) => s.cat === catId && s.date >= monday && s.date < end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function weekCounts(catId) {
+  const counts = new Map();
+  for (const s of state.sessions) {
+    if (s.cat !== catId) continue;
+    const week = mondayOf(s.date);
+    counts.set(week, (counts.get(week) || 0) + 1);
   }
-  render();
+  return counts;
+}
+
+function goalFor(cat, week) {
+  if (week === currentMonday()) return cat.goal;
+  return state.goalHistory[week]?.[cat.id] ?? cat.goal;
+}
+
+// 'done' = Ziel geschafft, 'missed' = verfehlt, 'free' = kein Ziel / zählt nicht
+function weekStatus(cat, counts, week) {
+  if (week < cat.created) return 'free';
+  const goal = goalFor(cat, week);
+  if (goal === 0) return 'free';
+  return (counts.get(week) || 0) >= goal ? 'done' : 'missed';
+}
+
+// Die laufende Woche bricht keine Serie, solange sie noch nicht geschafft ist.
+function streakOf(start, statusAt) {
+  const now = currentMonday();
+  let current = 0;
+  let best = 0;
+  for (let week = start; week <= now; week = addDays(week, 7)) {
+    const status = statusAt(week);
+    if (status === 'done') best = Math.max(best, ++current);
+    else if (status === 'missed' && week !== now) current = 0;
+  }
+  return { current, best };
+}
+
+function categoryStreak(cat) {
+  const counts = weekCounts(cat.id);
+  return streakOf(cat.created, (week) => weekStatus(cat, counts, week));
+}
+
+// Wochen, in denen alle Kategorien mit Ziel geschafft wurden
+function overallStreak() {
+  if (!state.categories.length) return { current: 0, best: 0 };
+  const counts = new Map(state.categories.map((c) => [c.id, weekCounts(c.id)]));
+  const start = state.categories.reduce((min, c) => (c.created < min ? c.created : min), currentMonday());
+  return streakOf(start, (week) => {
+    const statuses = state.categories.map((c) => weekStatus(c, counts.get(c.id), week));
+    if (statuses.includes('missed')) return 'missed';
+    return statuses.includes('done') ? 'done' : 'free';
+  });
+}
+
+function snapshotGoals() {
+  state.goalHistory[currentMonday()] = Object.fromEntries(state.categories.map((c) => [c.id, c.goal]));
+}
+
+function displayName(cat) {
+  return cat.name.trim() || 'Ohne Namen';
+}
+
+function title(cat) {
+  return `${cat.emoji} ${displayName(cat)}`.trim();
 }
 
 // ---------- Darstellung ----------
@@ -81,73 +238,309 @@ function checkWeek() {
 const $categories = document.getElementById('categories');
 const $weekLabel = document.getElementById('weekLabel');
 const $settings = document.getElementById('settings');
-const $goalRows = document.getElementById('goalRows');
+const $catRows = document.getElementById('catRows');
+const $stats = document.getElementById('stats');
+const $statsBody = document.getElementById('statsBody');
+const $session = document.getElementById('session');
+const $sessionTitle = document.getElementById('sessionTitle');
+const $sessionDays = document.getElementById('sessionDays');
+const $importFile = document.getElementById('importFile');
 
 function render() {
-  $weekLabel.textContent = weekLabel(state.week);
-  $categories.replaceChildren(...CATEGORIES.map(renderCard));
+  $weekLabel.textContent = weekLabel(currentMonday());
+  if (!state.categories.length) {
+    $categories.replaceChildren(el('p', { class: 'empty center' }, 'Noch keine Kategorien – leg in den Einstellungen eine an.'));
+    return;
+  }
+  $categories.replaceChildren(...state.categories.map(renderCard));
 }
 
-function renderCard(c) {
-  const goal = state.goals[c.id];
-  const done = Math.min(state.done[c.id], goal);
-  const complete = goal > 0 && done >= goal;
+function renderCard(cat) {
+  const sessions = sessionsIn(cat.id, currentMonday());
+  const goal = cat.goal;
+  const count = sessions.length;
+  const complete = goal > 0 && count >= goal;
+  const streak = categoryStreak(cat).current;
 
-  const card = el('section', { class: 'card' + (complete ? ' complete' : '') });
+  const card = el('section', { class: 'card' + (complete ? ' complete' : ''), style: `--c: ${cat.color}` });
   const head = el('div', { class: 'card-head' });
-  const title = el('h2', {}, c.name + ' ');
-  title.append(el('span', { class: 'sub' }, c.sub));
-  head.append(title, el('span', { class: 'count' }, `${done} / ${goal}`));
+  const meta = el('div', { class: 'card-meta' });
+  if (streak > 0) {
+    meta.append(el('span', { class: 'streak', 'aria-label': `${streak} Wochen in Folge geschafft` }, `🔥 ${streak}`));
+  }
+  meta.append(el('span', { class: 'count' }, `${count} / ${goal}`));
+  head.append(el('h2', {}, title(cat)), meta);
   card.append(head);
 
-  if (goal === 0) {
-    card.append(el('p', { class: 'empty' }, 'Kein Ziel diese Woche'));
-    return card;
-  }
-
   const dots = el('div', { class: 'dots' });
-  for (let i = 0; i < goal; i++) {
-    const on = i < done;
+  sessions.forEach((s, i) => {
+    const day = weekdayIndex(s.date);
     const dot = el('button', {
-      class: 'dot' + (on ? ' on' : ''),
-      'aria-label': `${c.name} Einheit ${i + 1}`,
-      'aria-pressed': String(on),
-    });
-    // Erledigte Kreise füllen sich immer von links: Tippen auf einen
-    // erledigten Kreis nimmt eine Einheit weg, auf einen offenen fügt eine hinzu.
-    dot.addEventListener('click', () => {
-      state.done[c.id] = Math.max(0, Math.min(goal, done + (on ? -1 : 1)));
-      save();
-      render();
-      if (navigator.vibrate) navigator.vibrate(10);
-    });
+      class: 'dot on',
+      'aria-label': `${displayName(cat)} Einheit ${i + 1} am ${DAY_NAMES[day]} bearbeiten`,
+    }, DAYS[day]);
+    dot.addEventListener('click', () => openSession(s.id));
+    dots.append(dot);
+  });
+  for (let i = count; i < goal; i++) {
+    const dot = el('button', { class: 'dot', 'aria-label': `${displayName(cat)} Einheit ${i + 1} heute eintragen` });
+    dot.addEventListener('click', () => addSession(cat.id));
     dots.append(dot);
   }
+  if (count >= goal) {
+    const extra = el('button', { class: 'dot extra', 'aria-label': `Zusätzliche ${displayName(cat)}-Einheit heute eintragen` }, '+');
+    extra.addEventListener('click', () => addSession(cat.id));
+    dots.append(extra);
+  }
   card.append(dots);
+
+  card.append(renderBars(cat, CARD_WEEKS, 'bars mini'));
   return card;
 }
 
+// Balken pro Woche: Höhe = Anteil am Wochenziel, volle Farbe = geschafft
+function renderBars(cat, weeks, className) {
+  const counts = weekCounts(cat.id);
+  const now = currentMonday();
+  let met = 0;
+  const wrap = el('div', { class: className, role: 'img' });
+  for (let i = weeks - 1; i >= 0; i--) {
+    const week = addDays(now, -7 * i);
+    const goal = goalFor(cat, week);
+    const count = counts.get(week) || 0;
+    const status = weekStatus(cat, counts, week);
+    if (status === 'done') met++;
+    const ratio = goal > 0 ? Math.min(count / goal, 1) : (count > 0 ? 1 : 0);
+    const bar = el('span', {
+      class: 'bar' + (status === 'done' ? ' met' : '') + (week === now ? ' now' : '') + (week < cat.created ? ' before' : ''),
+    });
+    bar.append(el('span', { class: 'fill', style: `height: ${Math.round(ratio * 100)}%` }));
+    wrap.append(bar);
+  }
+  wrap.setAttribute('aria-label', `Verlauf: ${met} von ${weeks} Wochen geschafft`);
+  return wrap;
+}
+
+function renderStats() {
+  const year = today().slice(0, 4);
+  const overall = overallStreak();
+  const yearCount = state.sessions.filter((s) => s.date.startsWith(year)).length;
+
+  const parts = [
+    tiles([
+      [`🔥 ${overall.current}`, 'Wochen alle Ziele'],
+      [overall.best, 'Beste Serie'],
+      [yearCount, `Einheiten ${year}`],
+      [state.sessions.length, 'Einheiten gesamt'],
+    ]),
+  ];
+
+  for (const cat of state.categories) {
+    const sessions = state.sessions.filter((s) => s.cat === cat.id);
+    const streak = categoryStreak(cat);
+    const section = el('section', { class: 'stat-cat', style: `--c: ${cat.color}` });
+    section.append(
+      el('h3', {}, title(cat)),
+      tiles([
+        [`🔥 ${streak.current}`, 'Serie'],
+        [streak.best, 'Beste'],
+        [sessions.filter((s) => s.date.startsWith(year)).length, year],
+        [sessions.length, 'Gesamt'],
+      ]),
+      el('h4', {}, `Letzte ${STATS_WEEKS} Wochen`),
+      renderBars(cat, STATS_WEEKS, 'bars big'),
+    );
+    const axis = el('div', { class: 'axis' });
+    axis.append(el('span', {}, `vor ${STATS_WEEKS - 1} Wo.`), el('span', {}, 'diese Woche'));
+    section.append(axis, el('h4', {}, 'Wochentage'), renderWeekdays(sessions));
+    parts.push(section);
+  }
+
+  $statsBody.replaceChildren(...parts);
+}
+
+function tiles(items) {
+  const wrap = el('div', { class: 'tiles' });
+  for (const [value, label] of items) {
+    const tile = el('div', { class: 'tile' });
+    tile.append(el('strong', {}, String(value)), el('span', {}, label));
+    wrap.append(tile);
+  }
+  return wrap;
+}
+
+function renderWeekdays(sessions) {
+  const counts = Array(7).fill(0);
+  for (const s of sessions) counts[weekdayIndex(s.date)]++;
+  const max = Math.max(1, ...counts);
+  const wrap = el('div', { class: 'weekdays' });
+  counts.forEach((n, i) => {
+    const col = el('div', { class: 'wd', 'aria-label': `${DAY_NAMES[i]}: ${n}` });
+    const bar = el('span', { class: 'bar' + (n > 0 ? ' met' : '') });
+    bar.append(el('span', { class: 'fill', style: `height: ${Math.round((n / max) * 100)}%` }));
+    col.append(el('span', { class: 'wd-count' }, String(n)), bar, el('span', { class: 'wd-label' }, DAYS[i]));
+    wrap.append(col);
+  });
+  return wrap;
+}
+
 function renderSettings() {
-  $goalRows.replaceChildren(...CATEGORIES.map((c) => {
-    const goal = state.goals[c.id];
-    const row = el('div', { class: 'goal-row' });
-    const label = el('span', {}, `${c.name} (${c.sub})`);
+  $catRows.replaceChildren(...state.categories.map((cat) => {
+    const row = el('div', { class: 'cat-row', style: `--c: ${cat.color}` });
+
+    const line = el('div', { class: 'cat-line' });
+    const emoji = el('input', { class: 'emoji-input', value: cat.emoji, maxlength: '8', 'aria-label': 'Emoji' });
+    const name = el('input', { class: 'name-input', value: cat.name, maxlength: '40', 'aria-label': 'Name' });
+    const swatch = el('button', { type: 'button', class: 'swatch', 'aria-label': `Farbe von ${displayName(cat)} ändern` });
+    const remove = el('button', { type: 'button', class: 'remove', 'aria-label': `${displayName(cat)} löschen` }, '×');
+    emoji.addEventListener('input', () => { cat.emoji = emoji.value.trim(); save(); render(); });
+    name.addEventListener('input', () => { cat.name = name.value; save(); render(); });
+    swatch.addEventListener('click', () => {
+      cat.color = COLORS[(COLORS.indexOf(cat.color) + 1) % COLORS.length];
+      save();
+      renderSettings();
+      render();
+    });
+    remove.addEventListener('click', () => removeCategory(cat));
+    line.append(emoji, name, swatch, remove);
+
+    const goalRow = el('div', { class: 'goal-row' });
     const stepper = el('div', { class: 'stepper' });
-    const minus = el('button', { type: 'button', 'aria-label': `${c.name} Ziel verringern` }, '−');
-    const plus = el('button', { type: 'button', 'aria-label': `${c.name} Ziel erhöhen` }, '+');
-    minus.disabled = goal <= 0;
-    plus.disabled = goal >= MAX_GOAL;
-    minus.addEventListener('click', () => changeGoal(c.id, -1));
-    plus.addEventListener('click', () => changeGoal(c.id, +1));
-    stepper.append(minus, el('output', {}, String(goal)), plus);
-    row.append(label, stepper);
+    const minus = el('button', { type: 'button', 'aria-label': `${displayName(cat)} Ziel verringern` }, '−');
+    const plus = el('button', { type: 'button', 'aria-label': `${displayName(cat)} Ziel erhöhen` }, '+');
+    minus.disabled = cat.goal <= 0;
+    plus.disabled = cat.goal >= MAX_GOAL;
+    minus.addEventListener('click', () => changeGoal(cat, -1));
+    plus.addEventListener('click', () => changeGoal(cat, +1));
+    stepper.append(minus, el('output', {}, String(cat.goal)), plus);
+    goalRow.append(el('span', {}, 'Ziel pro Woche'), stepper);
+
+    row.append(line, goalRow);
     return row;
   }));
 }
 
-function changeGoal(id, delta) {
-  state.goals[id] = Math.max(0, Math.min(MAX_GOAL, state.goals[id] + delta));
-  state.done[id] = Math.min(state.done[id], state.goals[id]);
+let editingSessionId = null;
+
+function renderSession() {
+  const session = state.sessions.find((s) => s.id === editingSessionId);
+  if (!session) {
+    $session.close();
+    return;
+  }
+  const cat = state.categories.find((c) => c.id === session.cat);
+  $session.style.setProperty('--c', cat.color);
+  $sessionTitle.textContent = title(cat);
+  const monday = mondayOf(session.date);
+  const now = today();
+  $sessionDays.replaceChildren(...DAYS.map((label, i) => {
+    const date = addDays(monday, i);
+    const chip = el('button', {
+      type: 'button',
+      class: 'day' + (date === session.date ? ' selected' : ''),
+      'aria-label': DAY_NAMES[i],
+      'aria-pressed': String(date === session.date),
+    });
+    chip.append(el('span', {}, label), el('small', {}, String(fromKey(date).getDate())));
+    chip.disabled = date > now;
+    chip.addEventListener('click', () => {
+      session.date = date;
+      save();
+      render();
+      renderSession();
+    });
+    return chip;
+  }));
+}
+
+// ---------- Aktionen ----------
+
+function addSession(catId) {
+  state.sessions.push({ id: uid(), cat: catId, date: today() });
+  save();
+  render();
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+
+function openSession(id) {
+  editingSessionId = id;
+  renderSession();
+  $session.showModal();
+}
+
+function changeGoal(cat, delta) {
+  cat.goal = clamp(cat.goal + delta, 0, MAX_GOAL);
+  snapshotGoals();
+  save();
+  renderSettings();
+  render();
+}
+
+function addCategory() {
+  const used = new Set(state.categories.map((c) => c.color));
+  state.categories.push({
+    id: uid(),
+    name: '',
+    emoji: '⭐',
+    color: COLORS.find((c) => !used.has(c)) ?? COLORS[state.categories.length % COLORS.length],
+    goal: 3,
+    created: currentMonday(),
+  });
+  snapshotGoals();
+  save();
+  renderSettings();
+  render();
+  const inputs = $catRows.querySelectorAll('.name-input');
+  inputs[inputs.length - 1]?.focus();
+}
+
+function removeCategory(cat) {
+  const n = state.sessions.filter((s) => s.cat === cat.id).length;
+  const detail = n ? ` und alle ${n} eingetragenen Einheiten` : '';
+  if (!confirm(`„${displayName(cat)}“${detail} löschen?`)) return;
+  state.categories = state.categories.filter((c) => c.id !== cat.id);
+  state.sessions = state.sessions.filter((s) => s.cat !== cat.id);
+  for (const goals of Object.values(state.goalHistory)) delete goals[cat.id];
+  save();
+  renderSettings();
+  render();
+}
+
+async function exportBackup() {
+  const json = JSON.stringify({ app: 'wochenziel', exportedAt: new Date().toISOString(), ...state }, null, 2);
+  const name = `wochenziel-backup-${today()}.json`;
+  const file = new File([json], name, { type: 'application/json' });
+
+  // Auf dem iPhone über das Teilen-Menü (z. B. „In Dateien sichern“), sonst als Download
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Wochenziel Backup' });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const link = el('a', { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importBackup(file) {
+  let data = null;
+  try {
+    data = normalize(JSON.parse(await file.text()));
+  } catch { /* ungültige Datei */ }
+  if (!data || !data.categories.length) {
+    alert('Das ist keine gültige Wochenziel-Sicherung.');
+    return;
+  }
+  const summary = `${data.categories.length} Kategorien und ${data.sessions.length} Einheiten`;
+  if (!confirm(`Backup mit ${summary} laden? Deine aktuellen Daten werden ersetzt.`)) return;
+  state = data;
+  snapshotGoals();
   save();
   renderSettings();
   render();
@@ -167,17 +560,48 @@ document.getElementById('openSettings').addEventListener('click', () => {
   $settings.showModal();
 });
 
-// Tippen auf den abgedunkelten Hintergrund schließt die Einstellungen
-$settings.addEventListener('click', (e) => {
-  if (e.target === $settings) $settings.close();
+document.getElementById('openStats').addEventListener('click', () => {
+  renderStats();
+  $stats.showModal();
+  $stats.scrollTop = 0;
 });
+
+document.getElementById('addCategory').addEventListener('click', addCategory);
+document.getElementById('exportBtn').addEventListener('click', exportBackup);
+document.getElementById('importBtn').addEventListener('click', () => $importFile.click());
+$importFile.addEventListener('change', () => {
+  const file = $importFile.files[0];
+  $importFile.value = '';
+  if (file) importBackup(file);
+});
+
+document.getElementById('deleteSession').addEventListener('click', () => {
+  state.sessions = state.sessions.filter((s) => s.id !== editingSessionId);
+  save();
+  render();
+  $session.close();
+});
+
+// Tippen auf den abgedunkelten Hintergrund schließt Dialoge
+for (const dialog of [$settings, $stats, $session]) {
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+}
+
+// Neue Woche: Ziele der Woche merken, damit der Verlauf später stimmt
+function refresh() {
+  snapshotGoals();
+  save();
+  render();
+}
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') checkWeek();
+  if (document.visibilityState === 'visible') refresh();
 });
-window.addEventListener('pageshow', checkWeek);
+window.addEventListener('pageshow', refresh);
 
-checkWeek();
+refresh();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

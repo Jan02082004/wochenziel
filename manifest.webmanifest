@@ -1,7 +1,7 @@
 {
   "name": "Wochenziel – Trainingstracker",
   "short_name": "Wochenziel",
-  "description": "Minimalistischer Wochen-Trainingstracker für Gym und Joggen",
+  "description": "Minimalistischer Wochen-Tracker für deine Trainingsziele",
   "lang": "de",
   "start_url": "./",
   "scope": "./",
