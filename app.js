@@ -604,6 +604,15 @@ window.addEventListener('pageshow', refresh);
 refresh();
 
 if ('serviceWorker' in navigator) {
+  // Neue Version installiert -> einmal neu laden, damit sie sofort sichtbar ist
+  if (navigator.serviceWorker.controller) {
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

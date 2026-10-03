@@ -1,6 +1,6 @@
 // Bei jeder Änderung an den App-Dateien die Version erhöhen,
 // damit iPhones die neue Version laden.
-const CACHE = 'wochenziel-v2';
+const CACHE = 'wochenziel-v3';
 
 const ASSETS = [
   './',
@@ -16,7 +16,10 @@ const ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    // cache: 'reload' umgeht den Browser-Cache, sonst landen evtl. alte Dateien im neuen Cache
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
 });
 
