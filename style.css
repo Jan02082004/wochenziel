@@ -130,6 +130,15 @@ h1 { font-size: 32px; margin: 0; letter-spacing: -0.5px; }
   font-size: 15px;
   font-weight: 700;
 }
+.dot.on small {
+  display: block;
+  margin-top: -2px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: .9;
+}
+.dot.on:has(small) { align-content: center; line-height: 1.1; }
 .dot.extra {
   border-style: dashed;
   color: var(--muted);
@@ -316,6 +325,21 @@ input:focus { outline: 2px solid var(--c, var(--accent)); }
 .day.selected { background: var(--c); color: #fff; }
 .day.selected small { color: rgba(255, 255, 255, .85); }
 .day:disabled { opacity: .3; }
+
+.types {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.type {
+  padding: 12px 0;
+  border-radius: 12px;
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 15px;
+}
+.type.selected { background: var(--c); color: #fff; }
 
 /* Statistik */
 .tiles {

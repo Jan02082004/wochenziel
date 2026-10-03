@@ -1,6 +1,6 @@
 // Bei jeder Änderung an den App-Dateien die Version erhöhen,
 // damit iPhones die neue Version laden.
-const CACHE = 'wochenziel-v3';
+const CACHE = 'wochenziel-v4';
 
 const ASSETS = [
   './',

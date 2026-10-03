@@ -10,6 +10,16 @@ const COLORS = ['#34c759', '#0a84ff', '#ff9f0a', '#ff375f', '#bf5af2', '#30b0c7'
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
+// Kategorien mit Trainingsarten: beim Eintragen wird nachgefragt, was trainiert wurde
+const SESSION_TYPES = {
+  gym: [
+    { id: 'legs', name: 'Legs', short: 'Legs' },
+    { id: 'upper', name: 'Upper', short: 'Upper' },
+    { id: 'arms', name: 'Arms', short: 'Arms' },
+    { id: 'chestback', name: 'Chest + Back', short: 'C+B' },
+  ],
+};
+
 const DEFAULT_CATEGORIES = [
   { id: 'gym', name: 'Gym', emoji: '🏋️', color: COLORS[0], goal: 4 },
   { id: 'run', name: 'Joggen', emoji: '🏃', color: COLORS[1], goal: 1 },
@@ -60,7 +70,7 @@ function weekLabel(mondayKey) {
 // ---------- Speicher ----------
 // state = {
 //   categories: [{ id, name, emoji, color, goal, created }],  created = Montag der ersten Woche
-//   sessions:   [{ id, cat, date }],                          eine erledigte Einheit
+//   sessions:   [{ id, cat, date, type? }],                   eine erledigte Einheit (type siehe SESSION_TYPES)
 //   goalHistory: { [montag]: { [catId]: ziel } },             Ziele vergangener Wochen
 // }
 
@@ -104,7 +114,11 @@ function normalize(raw) {
 
   const sessions = raw.sessions
     .filter((s) => s && ids.has(s.cat) && KEY_RE.test(s.date))
-    .map((s) => ({ id: typeof s.id === 'string' ? s.id : uid(), cat: s.cat, date: s.date }));
+    .map((s) => {
+      const session = { id: typeof s.id === 'string' ? s.id : uid(), cat: s.cat, date: s.date };
+      if (typeOf(s.cat, s.type)) session.type = s.type;
+      return session;
+    });
 
   // Eine Kategorie beginnt spätestens mit ihrer ersten Einheit
   for (const s of sessions) {
@@ -225,6 +239,10 @@ function snapshotGoals() {
   state.goalHistory[currentMonday()] = Object.fromEntries(state.categories.map((c) => [c.id, c.goal]));
 }
 
+function typeOf(catId, typeId) {
+  return SESSION_TYPES[catId]?.find((t) => t.id === typeId);
+}
+
 function displayName(cat) {
   return cat.name.trim() || 'Ohne Namen';
 }
@@ -244,6 +262,8 @@ const $statsBody = document.getElementById('statsBody');
 const $session = document.getElementById('session');
 const $sessionTitle = document.getElementById('sessionTitle');
 const $sessionDays = document.getElementById('sessionDays');
+const $sessionTypesWrap = document.getElementById('sessionTypesWrap');
+const $sessionTypes = document.getElementById('sessionTypes');
 const $importFile = document.getElementById('importFile');
 
 function render() {
@@ -275,10 +295,12 @@ function renderCard(cat) {
   const dots = el('div', { class: 'dots' });
   sessions.forEach((s, i) => {
     const day = weekdayIndex(s.date);
+    const type = typeOf(cat.id, s.type);
     const dot = el('button', {
       class: 'dot on',
-      'aria-label': `${displayName(cat)} Einheit ${i + 1} am ${DAY_NAMES[day]} bearbeiten`,
+      'aria-label': `${displayName(cat)} Einheit ${i + 1} am ${DAY_NAMES[day]}${type ? ` (${type.name})` : ''} bearbeiten`,
     }, DAYS[day]);
+    if (type) dot.append(el('small', {}, type.short));
     dot.addEventListener('click', () => openSession(s.id));
     dots.append(dot);
   });
@@ -451,15 +473,35 @@ function renderSession() {
     });
     return chip;
   }));
+
+  const types = SESSION_TYPES[cat.id];
+  $sessionTypesWrap.hidden = !types;
+  $sessionTypes.replaceChildren(...(types ?? []).map((type) => {
+    const chip = el('button', {
+      type: 'button',
+      class: 'type' + (type.id === session.type ? ' selected' : ''),
+      'aria-pressed': String(type.id === session.type),
+    }, type.name);
+    chip.addEventListener('click', () => {
+      session.type = type.id;
+      save();
+      render();
+      $session.close();
+    });
+    return chip;
+  }));
 }
 
 // ---------- Aktionen ----------
 
 function addSession(catId) {
-  state.sessions.push({ id: uid(), cat: catId, date: today() });
+  const session = { id: uid(), cat: catId, date: today() };
+  state.sessions.push(session);
   save();
   render();
   if (navigator.vibrate) navigator.vibrate(10);
+  // Direkt nachfragen, was trainiert wurde
+  if (SESSION_TYPES[catId]) openSession(session.id);
 }
 
 function openSession(id) {
